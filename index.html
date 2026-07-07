@@ -11,7 +11,9 @@
       font-family: -apple-system, Segoe UI, Roboto, sans-serif;
       overflow: hidden;
     }
-    #app { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    /* No flex-centering here — Phaser's Scale.CENTER_BOTH positions the
+       canvas itself via inline styles; combining the two double-offsets it. */
+    #app { width: 100%; height: 100%; position: relative; }
     canvas { image-rendering: auto; }
   </style>
 </head>

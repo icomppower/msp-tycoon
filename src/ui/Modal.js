@@ -7,6 +7,10 @@ import { button, label } from './widgets.js';
 export function openModal(scene, { title, width = 360, height = 300, build }) {
   closeModal(scene);
 
+  // Clamp to the viewport so modals never overflow a narrow mobile canvas.
+  width = Math.min(width, scene.scale.width - 24);
+  height = Math.min(height, scene.scale.height - 24);
+
   const overlay = scene.add.rectangle(0, 0, scene.scale.width, scene.scale.height, 0x0a0e14, 0.45)
     .setOrigin(0).setInteractive();
   overlay.on('pointerdown', () => closeModal(scene));

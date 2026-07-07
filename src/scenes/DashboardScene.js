@@ -18,6 +18,14 @@ const TREES = [
   { key: 'security', label: 'Security' },
   { key: 'business', label: 'Business' },
 ];
+const MOBILE_TABS = [
+  { key: 'queue', label: 'Queue' },
+  { key: 'clients', label: 'Clients' },
+  { key: 'staff', label: 'Staff' },
+  { key: 'sales', label: 'Sales' },
+  { key: 'upgrades', label: 'Upgr' },
+  { key: 'log', label: 'Log' },
+];
 
 function truncate(str, n) {
   return str.length > n ? str.slice(0, n - 1) + '…' : str;
@@ -30,7 +38,9 @@ export default class DashboardScene extends Phaser.Scene {
 
   create() {
     this.cameras.main.setBackgroundColor(COLORS.appBg);
+    this.isMobile = this.scale.width < 900;
     this.activeTree = 'rmm';
+    this.activeTab = 'queue';
     this.speed = 1;
     this.paused = false;
     this.activeModal = null;
@@ -116,31 +126,67 @@ export default class DashboardScene extends Phaser.Scene {
 
   // ─── static layout (built once) ─────────────────────────────
 
-  buildStaticLayout() {
-    // top bar
-    this.add.rectangle(0, 0, 1280, 50, COLORS.navBg).setOrigin(0);
+  desktopPanelRects() {
+    return {
+      queue:    { x: 10,  y: 60,  w: 430, h: 730, title: 'Ticket Queue' },
+      clients:  { x: 450, y: 60,  w: 390, h: 270, title: 'Client Health' },
+      staff:    { x: 450, y: 340, w: 390, h: 450, title: 'Staff' },
+      sales:    { x: 850, y: 60,  w: 420, h: 200, title: 'Sales Pipeline' },
+      upgrades: { x: 850, y: 270, w: 420, h: 290, title: 'Upgrade Store' },
+      log:      { x: 850, y: 570, w: 420, h: 220, title: 'Activity Log' },
+    };
+  }
+
+  // Mobile: one shared full-width panel, section switched via a tab bar —
+  // there's no room for a 3-column grid on a phone screen.
+  mobilePanelRects() {
+    const rect = { x: 8, y: this.contentTop, w: this.scale.width - 16, h: this.scale.height - this.contentTop - 8, title: null };
+    return { queue: rect, clients: rect, staff: rect, sales: rect, upgrades: rect, log: rect };
+  }
+
+  buildDesktopChrome() {
+    this.add.rectangle(0, 0, this.scale.width, 50, COLORS.navBg).setOrigin(0);
     this.add.text(14, 25, '🎫 TixFlow Pro', {
       fontFamily: FONT, fontSize: '16px', color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0, 0.5);
     this.dyn.topBarStats = this.add.container(150, 0);
     this.dyn.topBarControls = this.add.container(0, 0);
+    this.contentTop = 60;
+  }
 
-    // panels
-    this.panels = {
-      queue: panel(this, 10, 60, 430, 730, 'Ticket Queue'),
-      clients: panel(this, 450, 60, 390, 270, 'Client Health'),
-      staff: panel(this, 450, 340, 390, 450, 'Staff'),
-      sales: panel(this, 850, 60, 420, 200, 'Sales Pipeline'),
-      upgrades: panel(this, 850, 270, 420, 290, 'Upgrade Store'),
-      log: panel(this, 850, 570, 420, 220, 'Activity Log'),
-    };
+  buildMobileChrome() {
+    const topH = 72, tabH = 40;
+    this.add.rectangle(0, 0, this.scale.width, topH, COLORS.navBg).setOrigin(0);
+    this.dyn.topBarStats = this.add.container(8, 16);
+    this.dyn.topBarControls = this.add.container(0, 32);
+    this.dyn.mobileTabBar = this.add.container(0, topH);
+    this.contentTop = topH + tabH + 6;
+  }
 
-    // upgrade store tabs (static, switching just re-renders the list)
+  buildStaticLayout() {
+    if (this.isMobile) this.buildMobileChrome(); else this.buildDesktopChrome();
+
+    const rects = this.isMobile ? this.mobilePanelRects() : this.desktopPanelRects();
+    this.panels = {};
+    for (const [key, r] of Object.entries(rects)) {
+      this.panels[key] = panel(this, r.x, r.y, r.w, r.h, r.title);
+      if (this.isMobile) this.panels[key].setVisible(key === this.activeTab);
+    }
+
+    this.buildUpgradeTreeTabs();
+    if (this.isMobile) this.buildMobileTabBar();
+  }
+
+  // upgrade-tree sub-tabs (RMM/Security/Business), parented into the
+  // Upgrades panel so its position is correct in both layout modes.
+  buildUpgradeTreeTabs() {
     const up = this.panels.upgrades;
-    this.dyn.upgradeTabs = this.add.container(850 + 8, 270 + 34);
+    this.dyn.upgradeTabs = this.add.container(8, up.contentY);
+    up.add(this.dyn.upgradeTabs);
+    const tabW = Math.floor((up.width - 16) / TREES.length);
     TREES.forEach((t, i) => {
-      const btn = button(this, i * 128, 0, 120, 24, t.label, {
-        tone: this.activeTree === t.key ? 'accent' : 'muted',
+      const btn = button(this, i * tabW, 0, tabW - 6, 26, t.label, {
+        fontSize: '11px', tone: this.activeTree === t.key ? 'accent' : 'muted',
         onClick: () => { this.activeTree = t.key; this.renderUpgrades(); this.renderUpgradeTabs(); },
       });
       btn.name = t.key;
@@ -153,6 +199,31 @@ export default class DashboardScene extends Phaser.Scene {
       const bg = btn.list[0];
       bg.setFillStyle(btn.name === this.activeTree ? COLORS.accent : 0xdfe4ea);
     });
+  }
+
+  // Mobile section tabs (Queue/Clients/Staff/Sales/Upgrades/Log) — swap which
+  // shared panel is visible; content is already rendered by refresh().
+  buildMobileTabBar() {
+    this.renderMobileTabBar();
+  }
+
+  renderMobileTabBar() {
+    this.dyn.mobileTabBar.removeAll(true);
+    const n = MOBILE_TABS.length;
+    const w = Math.floor(this.scale.width / n);
+    MOBILE_TABS.forEach((t, i) => {
+      const btn = button(this, i * w, 0, w - 1, 40, t.label, {
+        fontSize: '10px', tone: this.activeTab === t.key ? 'accent' : 'muted',
+        onClick: () => this.setActiveTab(t.key),
+      });
+      this.dyn.mobileTabBar.add(btn);
+    });
+  }
+
+  setActiveTab(key) {
+    this.activeTab = key;
+    for (const k of Object.keys(this.panels)) this.panels[k].setVisible(k === key);
+    this.renderMobileTabBar();
   }
 
   // ─── full refresh (called after every tick and every action) ─
@@ -176,6 +247,22 @@ export default class DashboardScene extends Phaser.Scene {
     const { day, hour, week } = selectors.clock(s);
     const mrr = Math.round(selectors.mrrPerMonth(s));
     const stageNames = ['', 'Garage', 'First Hire', 'Real MSP', 'Regional'];
+    const sellEnabled = s.stage >= 4 && !s.gameOver;
+
+    if (this.isMobile) {
+      const line = `🎫 $${Math.round(s.cash).toLocaleString()}  MRR $${mrr.toLocaleString()}/mo  Rep ${Math.round(s.reputation)}  S${s.stage}  Wk${week} ${DAY_NAMES[day]} ${String(hour).padStart(2, '0')}:00`;
+      this.dyn.topBarStats.add(this.add.text(0, 0, line, { fontFamily: FONT, fontSize: '10px', color: '#dfe6f5' }).setOrigin(0, 0.5));
+
+      const btnW = Math.floor((this.scale.width - 16 - 4 * 6) / 5);
+      let x = 8;
+      const mk = (lbl, opts) => { const b = button(this, x, 0, btnW, 32, lbl, opts); x += btnW + 6; return b; };
+      this.dyn.topBarControls.add(mk(this.paused ? '▶' : '⏸', { tone: this.paused ? 'good' : 'muted', onClick: () => this.togglePause() }));
+      [1, 2, 4].forEach((m) => {
+        this.dyn.topBarControls.add(mk(`${m}x`, { tone: (!this.paused && this.speed === m) ? 'accent' : 'muted', onClick: () => this.setSpeed(m) }));
+      });
+      this.dyn.topBarControls.add(mk('Sell', { tone: 'good', enabled: sellEnabled, onClick: () => this.confirmSell() }));
+      return;
+    }
 
     const stats = [
       `Cash $${Math.round(s.cash).toLocaleString()}`,
@@ -191,8 +278,7 @@ export default class DashboardScene extends Phaser.Scene {
       x += txt.width + 26;
     }
 
-    let cx = 1280 - 14;
-    const sellEnabled = s.stage >= 4 && !s.gameOver;
+    let cx = this.scale.width - 14;
     const sellBtn = button(this, 0, 13, 90, 26, 'Sell MSP', {
       tone: 'good', enabled: sellEnabled, onClick: () => this.confirmSell(),
     });
@@ -231,13 +317,17 @@ export default class DashboardScene extends Phaser.Scene {
 
   renderQueue() {
     this.dyn.queueList?.destroy();
-    const c = this.add.container(8, 38); // local to the panel container it's added to below
+    const p = this.panels.queue;
+    const c = this.add.container(8, p.contentY); // local to the panel container it's added to below
     this.dyn.queueList = c;
-    this.panels.queue.add(c);
+    p.add(c);
 
     const list = selectors.queue(this.state);
     const dispatcherRunning = hasDispatcher(this.state);
-    const rowH = 40, maxRows = 16;
+    const rowW = p.width - 16;
+    const rowH = this.isMobile ? 54 : 40;
+    const btnH = this.isMobile ? 30 : 22;
+    const maxRows = Math.max(3, Math.floor((p.height - p.contentY - 20) / rowH));
     const visible = list.slice(0, maxRows);
 
     if (!list.length) {
@@ -246,7 +336,7 @@ export default class DashboardScene extends Phaser.Scene {
 
     visible.forEach((ticket, i) => {
       const y = i * rowH;
-      if (i % 2 === 1) c.add(this.add.rectangle(-8, y, 414, rowH, COLORS.rowAlt).setOrigin(0));
+      if (i % 2 === 1) c.add(this.add.rectangle(-8, y, rowW, rowH, COLORS.rowAlt).setOrigin(0));
 
       const client = this.state.clients.find((cl) => cl.id === ticket.clientId);
       const shownSeverity = ticket.triaged ? ticket.actualSeverity : ticket.severity;
@@ -263,16 +353,16 @@ export default class DashboardScene extends Phaser.Scene {
       if (dispatcherRunning) {
         c.add(label(this, 300, y + 18, 'auto-routed', { fontSize: '9px', color: COLORS.textFaint }));
       } else if (!ticket.triaged) {
-        c.add(button(this, 300, y + 14, 62, 22, 'Triage', {
+        c.add(button(this, 300, y + 14, 68, btnH, 'Triage', {
           fontSize: '10px', onClick: () => { actions.triageTicket(this.state, ticket.id); this.refresh(); },
         }));
       } else if (!ticket.assignedTo) {
-        c.add(button(this, 300, y + 14, 62, 22, 'Assign', {
+        c.add(button(this, 300, y + 14, 68, btnH, 'Assign', {
           fontSize: '10px', onClick: () => this.openAssignModal(ticket),
         }));
       } else {
         const tech = this.state.techs.find((t) => t.id === ticket.assignedTo);
-        c.add(button(this, 300, y + 14, 100, 22, tech ? tech.name : '?', {
+        c.add(button(this, 300, y + 14, Math.min(100, rowW - 300), btnH, tech ? tech.name : '?', {
           fontSize: '10px', tone: 'muted',
           onClick: () => { actions.unassignTicket(this.state, ticket.id); this.refresh(); },
         }));
@@ -288,15 +378,15 @@ export default class DashboardScene extends Phaser.Scene {
     const workers = this.state.techs.filter((t) => t.role !== 'dispatcher');
     openModal(this, {
       title: `Assign: ${truncate(ticket.title, 34)}`, width: 380, height: Math.min(420, 70 + workers.length * 46),
-      build: (box) => {
+      build: (box, w) => {
         workers.forEach((tech, i) => {
           const y = 44 + i * 46;
           const load = this.state.tickets.filter((t) => t.assignedTo === tech.id).length;
           const skill = tech.skills[ticket.type] ?? 1;
-          box.add(this.add.rectangle(12, y, 356, 40, i % 2 ? COLORS.rowAlt : COLORS.panelBg).setOrigin(0));
+          box.add(this.add.rectangle(12, y, w - 24, 40, i % 2 ? COLORS.rowAlt : COLORS.panelBg).setOrigin(0));
           box.add(label(this, 20, y + 6, tech.name, { fontStyle: 'bold' }));
           box.add(label(this, 20, y + 22, `${tech.role} · skill ${skill} · load ${load}/${tech.capacity} · morale ${Math.round(tech.morale)}`, { fontSize: '10px', color: COLORS.textMuted }));
-          box.add(button(this, 280, y + 8, 80, 24, 'Assign', {
+          box.add(button(this, w - 96, y + 8, 80, 24, 'Assign', {
             fontSize: '11px',
             onClick: () => { actions.assignTicket(this.state, ticket.id, tech.id); closeModal(this); this.refresh(); },
           }));
@@ -310,17 +400,20 @@ export default class DashboardScene extends Phaser.Scene {
 
   renderClients() {
     this.dyn.clientList?.destroy();
-    const c = this.add.container(8, 38);
+    const p = this.panels.clients;
+    const c = this.add.container(8, p.contentY);
     this.dyn.clientList = c;
-    this.panels.clients.add(c);
+    p.add(c);
 
     const list = selectors.clientHealth(this.state);
-    const rowH = 34, maxRows = 6;
+    const rowW = p.width - 16;
+    const rowH = this.isMobile ? 44 : 34;
+    const maxRows = Math.max(3, Math.floor((p.height - p.contentY - 16) / rowH));
     const visible = list.slice(0, maxRows);
 
     visible.forEach((client, i) => {
       const y = i * rowH;
-      if (i % 2 === 1) c.add(this.add.rectangle(-8, y, 374, rowH, COLORS.rowAlt).setOrigin(0));
+      if (i % 2 === 1) c.add(this.add.rectangle(-8, y, rowW, rowH, COLORS.rowAlt).setOrigin(0));
       c.add(label(this, 0, y + 2, truncate(client.name, 20), { fontSize: '11px', fontStyle: 'bold' }));
       c.add(badge(this, 0, y + 17, TIER_LABEL[client.tier], TIER_COLOR[client.tier]));
       const persona = PERSONALITIES[client.personality];
@@ -341,17 +434,21 @@ export default class DashboardScene extends Phaser.Scene {
 
   renderStaff() {
     this.dyn.staffList?.destroy();
-    const c = this.add.container(8, 38);
+    const p = this.panels.staff;
+    const c = this.add.container(8, p.contentY);
     this.dyn.staffList = c;
-    this.panels.staff.add(c);
+    p.add(c);
 
-    const rowH = 34, maxRows = 8;
+    const rowW = p.width - 16;
+    const rowH = this.isMobile ? 44 : 34;
+    const hireSectionH = this.isMobile ? 84 : 78;
     const techs = this.state.techs;
+    const maxRows = Math.max(2, Math.floor((p.height - p.contentY - hireSectionH - 10) / rowH));
     const visible = techs.slice(0, maxRows);
 
     visible.forEach((tech, i) => {
       const y = i * rowH;
-      if (i % 2 === 1) c.add(this.add.rectangle(-8, y, 374, rowH, COLORS.rowAlt).setOrigin(0));
+      if (i % 2 === 1) c.add(this.add.rectangle(-8, y, rowW, rowH, COLORS.rowAlt).setOrigin(0));
       const load = this.state.tickets.filter((t) => t.assignedTo === tech.id).length;
       c.add(label(this, 0, y + 2, `${tech.name}`, { fontSize: '11px', fontStyle: 'bold' }));
       c.add(label(this, 0, y + 17, tech.role === 'owner' ? 'you' : tech.role, { fontSize: '9px', color: COLORS.textFaint }));
@@ -361,7 +458,7 @@ export default class DashboardScene extends Phaser.Scene {
       c.add(label(this, 285, y + 2, `${Math.round(tech.morale)}`, { fontSize: '10px' }));
 
       if (tech.id !== 'you') {
-        c.add(button(this, 285, y + 15, 89, 18, 'Let go', {
+        c.add(button(this, 285, y + 15, Math.min(89, rowW - 285), this.isMobile ? 24 : 18, 'Let go', {
           fontSize: '9px', tone: 'bad',
           onClick: () => { actions.fireTech(this.state, tech.id); this.refresh(); },
         }));
@@ -373,19 +470,20 @@ export default class DashboardScene extends Phaser.Scene {
     }
 
     // hire row, pinned near the bottom of the panel
-    const hireY = 450 - 38 - 78;
-    c.add(divider(this, -8, hireY - 6, 374));
+    const hireY = p.height - p.contentY - hireSectionH;
+    c.add(divider(this, -8, hireY - 6, rowW));
     c.add(label(this, 0, hireY, 'Hire:', { fontSize: '11px', color: COLORS.textMuted }));
     const roles = ['junior', 'tech', 'senior', 'dispatcher'];
+    const hireBtnW = Math.floor(rowW / roles.length) - 6;
     roles.forEach((role, i) => {
       const def = TECHS.ROLES[role];
       const affordable = this.state.cash >= def.salaryWeek * 2; // rough sanity gate, not a hard rule
-      const btn = button(this, i * 92, hireY + 18, 86, 40, `${role}\n$${def.salaryWeek}/wk`, {
+      const btn = button(this, i * (hireBtnW + 6), hireY + 18, hireBtnW, this.isMobile ? 46 : 40, `${role}\n$${def.salaryWeek}/wk`, {
         fontSize: '9px', enabled: affordable,
         onClick: () => { actions.hireTech(this.state, role); this.refresh(); },
       });
       // multi-line label tweak
-      btn.list[1].setLineSpacing(2).setAlign('center').setPosition(43, 20);
+      btn.list[1].setLineSpacing(2).setAlign('center').setPosition(hireBtnW / 2, this.isMobile ? 23 : 20);
       c.add(btn);
     });
   }
@@ -394,23 +492,25 @@ export default class DashboardScene extends Phaser.Scene {
 
   renderSales() {
     this.dyn.salesList?.destroy();
-    const c = this.add.container(8, 38);
+    const p = this.panels.sales;
+    const c = this.add.container(8, p.contentY);
     this.dyn.salesList = c;
-    this.panels.sales.add(c);
+    p.add(c);
 
-    const rowH = 50;
-    this.state.prospects.forEach((p, i) => {
+    const rowW = p.width - 16;
+    const rowH = this.isMobile ? 62 : 50;
+    this.state.prospects.forEach((prospect, i) => {
       const y = i * rowH;
-      if (i % 2 === 1) c.add(this.add.rectangle(-8, y, 404, rowH, COLORS.rowAlt).setOrigin(0));
-      c.add(label(this, 0, y + 2, truncate(p.name, 22), { fontSize: '11px', fontStyle: 'bold' }));
-      c.add(badge(this, 0, y + 17, TIER_LABEL[p.tier], TIER_COLOR[p.tier]));
-      c.add(label(this, 66, y + 18, `${p.size} seats`, { fontSize: '9px', color: COLORS.textFaint }));
+      if (i % 2 === 1) c.add(this.add.rectangle(-8, y, rowW, rowH, COLORS.rowAlt).setOrigin(0));
+      c.add(label(this, 0, y + 2, truncate(prospect.name, 22), { fontSize: '11px', fontStyle: 'bold' }));
+      c.add(badge(this, 0, y + 17, TIER_LABEL[prospect.tier], TIER_COLOR[prospect.tier]));
+      c.add(label(this, 66, y + 18, `${prospect.size} seats`, { fontSize: '9px', color: COLORS.textFaint }));
 
-      c.add(progressBar(this, 200, y + 6, 110, 10, p.salesProgress / p.salesEffort, COLORS.accent));
-      c.add(button(this, 320, y + 2, 76, 24, p.working ? 'Stop' : 'Work', {
-        fontSize: '10px', tone: p.working ? 'muted' : 'accent',
+      c.add(progressBar(this, 200, y + 6, 110, 10, prospect.salesProgress / prospect.salesEffort, COLORS.accent));
+      c.add(button(this, 320, y + 2, Math.min(76, rowW - 320), this.isMobile ? 32 : 24, prospect.working ? 'Stop' : 'Work', {
+        fontSize: '10px', tone: prospect.working ? 'muted' : 'accent',
         onClick: () => {
-          if (p.working) actions.stopSales(this.state); else actions.workProspect(this.state, p.id);
+          if (prospect.working) actions.stopSales(this.state); else actions.workProspect(this.state, prospect.id);
           this.refresh();
         },
       }));
@@ -423,18 +523,20 @@ export default class DashboardScene extends Phaser.Scene {
 
   renderUpgrades() {
     this.dyn.upgradeList?.destroy();
-    const c = this.add.container(8, 66); // below the tree tabs, which sit at local y=34
+    const p = this.panels.upgrades;
+    const c = this.add.container(8, p.contentY + 34); // below the tree tabs
     this.dyn.upgradeList = c;
-    this.panels.upgrades.add(c);
+    p.add(c);
 
     const ids = Object.keys(UPGRADES).filter((id) => UPGRADES[id].tree === this.activeTree)
       .sort((a, b) => UPGRADES[a].tier - UPGRADES[b].tier);
 
-    const rowH = 54;
+    const rowW = p.width - 16;
+    const rowH = this.isMobile ? 64 : 54;
     ids.forEach((id, i) => {
       const up = UPGRADES[id];
       const y = i * rowH;
-      if (i % 2 === 1) c.add(this.add.rectangle(-8, y, 404, rowH, COLORS.rowAlt).setOrigin(0));
+      if (i % 2 === 1) c.add(this.add.rectangle(-8, y, rowW, rowH, COLORS.rowAlt).setOrigin(0));
 
       const owned = this.state.upgrades.includes(id);
       const check = canBuy(this.state, id);
@@ -445,7 +547,7 @@ export default class DashboardScene extends Phaser.Scene {
       let btnLabel = `$${up.cost}`;
       if (owned) btnLabel = 'Owned';
       else if (!check.ok) btnLabel = check.reason.length > 14 ? 'Locked' : check.reason;
-      c.add(button(this, 320, y + 12, 76, 26, btnLabel, {
+      c.add(button(this, 320, y + 10, Math.min(76, rowW - 320), this.isMobile ? 34 : 26, btnLabel, {
         fontSize: '10px', tone: owned ? 'muted' : 'good', enabled: !owned && check.ok,
         onClick: () => { actions.buyUpgrade(this.state, id); this.refresh(); },
       }));
@@ -456,13 +558,16 @@ export default class DashboardScene extends Phaser.Scene {
 
   renderLog() {
     this.dyn.logList?.destroy();
-    const c = this.add.container(8, 38);
+    const p = this.panels.log;
+    const c = this.add.container(8, p.contentY);
     this.dyn.logList = c;
-    this.panels.log.add(c);
+    p.add(c);
 
-    const entries = [...this.state.log].reverse().slice(0, 11);
+    const lineH = this.isMobile ? 20 : 16;
+    const maxLines = Math.max(5, Math.floor((p.height - p.contentY - 8) / lineH));
+    const entries = [...this.state.log].reverse().slice(0, maxLines);
     entries.forEach((e, i) => {
-      c.add(label(this, 0, i * 16, truncate(e.msg, 58), { fontSize: '10px', color: LOG_COLOR[e.kind] || COLORS.text }));
+      c.add(label(this, 0, i * lineH, truncate(e.msg, 58), { fontSize: '10px', color: LOG_COLOR[e.kind] || COLORS.text }));
     });
     if (!entries.length) c.add(label(this, 0, 0, 'Nothing has happened yet.', { color: COLORS.textMuted, fontSize: '11px' }));
   }
