@@ -1,0 +1,20 @@
+{
+  "name": "msp-tycoon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MSP Tycoon — idle/management sim, ironic PSA-dashboard aesthetic (Phaser 3 + Vite)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "balance": "node test/balance.js",
+    "test": "node test/balance.js"
+  },
+  "dependencies": {
+    "phaser": "^3.80.1"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}
